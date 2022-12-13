@@ -1,0 +1,374 @@
+<!--
+Copyright 2020 Google Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:regular,bold,italic,thin,light,bolditalic,black,medium&amp;lang=en">
+<link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+<link rel="stylesheet" href="https://code.getmdl.io/1.1.3/material.indigo-pink.min.css">
+<script src='https://apis.google.com/js/client.js'></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsts/2.2.2/jsts.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3-polygon/1.0.3/d3-polygon.min.js"></script>
+<script src="https://storage.googleapis.com/code.getmdl.io/1.0.0/material.min.js"></script>
+<script src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/4.1.1/papaparse.min.js"></script>
+
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <base target="_top">
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+        <title>Project Radium</title>
+        <?!= HtmlService.createHtmlOutputFromFile('Stylesheet').getContent(); ?>
+    </head>
+    <body>
+        <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
+            <header class="mdl-layout__header">
+                <div class="mdl-layout__header-row">
+                    <span class="mdl-layout-title">Project Radium</span>
+                    <div class="mdl-layout-spacer"></div>
+                    <nav class="mdl-navigation">
+                        <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent"
+                                id="show-dialog-upload">
+                            Upload KML File
+                        </button>
+                        <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent"
+                                id="show-dialog-csv-upload">
+                            Upload CSV File
+                        </button>
+                        <div class="mdl-card__menu">
+                            <dialog class="mdl-dialog" id="dialog-upload">
+                                <h4 class="mdl-dialog__title">
+                                    Please upload .kml file
+                                </h4>
+                                <div class="mdl-dialog__content">
+                                    The .kml file size limit is 30MB
+                                    <div id="upload-spinner" class="mdl-spinner mdl-js-spinner">
+                                    </div>
+                                </div>
+                                <div class="mdl-dialog__content" id="dialog-upload-error">
+                                </div>
+                                <div class="mdl-dialog__actions">
+                                    <input type="file" id="kmlFileUploadBtn" accept=".kml">
+                                    <button id="uploadKmlBtn" type="button" class="mdl-button" enabled>
+                                    Upload
+                                    </button>
+                                    <button type="button" class="mdl-button close">
+                                    Cancel
+                                    </button>
+                                </div>
+                            </dialog>
+                        </div>
+                        <div class="mdl-card__menu">
+                            <dialog class="mdl-dialog" id="dialog-csv-upload">
+                                <h4 class="mdl-dialog__title">
+                                    Please upload .csv file
+                                </h4>
+                                <div class="mdl-dialog__content">
+                                    The .csv file size limit is 30MB
+                                    <div id="upload-spinner" class="mdl-spinner mdl-js-spinner">
+                                    </div>
+                                </div>
+                                <div class="mdl-dialog__content" id="dialog-upload-error">
+                                </div>
+                                <div class="mdl-dialog__actions">
+                                    <input type="file" id="csvFileUploadBtn" accept=".csv">
+                                    <button id="uploadCsvBtn" type="button" class="mdl-button" enabled>
+                                    Upload
+                                    </button>
+                                    <button type="button" class="mdl-button close">
+                                    Cancel
+                                    </button>
+                                </div>
+                            </dialog>
+                        </div>
+                    </nav>
+                </div>
+            </header>
+            <main class="mdl-layout__content">
+                <div class="page-content">
+                    <div class="wrapper">
+                      <div class="map" id="map"></div>
+                      <div class="controls">
+                        <!-- Select Area section-->
+                        <div class="section select-area">
+                          <div class="title">
+                            Select Targeting Area
+                          </div>
+                          <div class="content">
+                            <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
+                              <select class="mdl-textfield__input"
+                                      id="city-list-select"
+                                      onChange="updatedSelectedOptions(this.value)"
+                                      disabled>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                        <!-- Business Info section-->
+                        <div class="section business-area">
+                          <div class="title">
+                            Business Targeting Area
+                          </div>
+                          <div class="content">
+                            <div><strong>Size:</strong> <span id="text_under_map_business"></span></div>
+                            <div><strong>Coordinates:</strong> <span id="circle_center_coordinates"></span></div>
+                          </div>
+                        </div>
+                        <div class="section">
+                          <div class="title">
+                            Display Shape
+                          </div>
+                          <div class="content">
+                            <label class = "mdl-checkbox mdl-js-checkbox" for = "largeCheckbox">
+                              <input type = "checkbox"
+                                    id = "largeCheckbox"
+                                    class = "mdl-checkbox__input"
+                                    onclick = "updateLargeCircleCheckboxAndRedrawShape()"
+                                    unchecked
+                                    disabled />
+                              <span class = "mdl-checkbox__label">Large Circle</span>
+                            </label>
+                            <label class = "mdl-checkbox mdl-js-checkbox" for = "thresholdCheckbox">
+                              <input type = "checkbox"
+                                    id = "thresholdCheckbox"
+                                    class = "mdl-checkbox__input"
+                                    onclick = "updateThresholdCircleCheckboxAndRedrawShape()"
+                                    unchecked
+                                    disabled />
+                              <span class = "mdl-checkbox__label">Threshold Circle</span>
+                            </label>
+                            <label class = "mdl-checkbox mdl-js-checkbox" for = "smallCheckbox">
+                              <input type = "checkbox"
+                                    id = "smallCheckbox"
+                                    class = "mdl-checkbox__input"
+                                    onclick = "updateSmallCircleCheckboxAndRedrawShape()"
+                                    unchecked
+                                    disabled />
+                              <span class = "mdl-checkbox__label">Small Circle</span>
+                            </label>
+                            <label class = "mdl-checkbox mdl-js-checkbox" for = "customCheckbox">
+                              <input type = "checkbox"
+                                    id = "customCheckbox"
+                                    class = "mdl-checkbox__input"
+                                    onclick = "updateCustomCircleCheckboxAndRedrawShape()"
+                                    unchecked
+                                    disabled />
+                              <span class = "mdl-checkbox__label">Custom Circle</span>
+                            </label>
+                            <label class = "mdl-checkbox mdl-js-checkbox" for = "rectangleCheckbox">
+                              <input type = "checkbox"
+                                    id = "rectangleCheckbox"
+                                    class = "mdl-checkbox__input"
+                                    onclick = "updateRectanlgeCheckboxAndRedrawShape()"
+                                    unchecked
+                                    disabled />
+                              <span class = "mdl-checkbox__label">Rectangle</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div class="section">
+                          <div class="title">
+                            Targeting info
+                          </div>
+                          <div class="content">
+                            <div class="flex">
+                              <strong>Select custom radius:</strong>
+                              <input id = "sliderRadius"
+                                    class = "mdl-slider mdl-js-slider"
+                                    type = "range"
+                                    min = "1"
+                                    max = "20"
+                                    value = "5"
+                                    tabindex = "0"
+                                    step = "0.1"
+                                    oninput = "calculateCustomFields(this.value)"
+                                    onchange = "calculateCustomFields(this.value)"
+                                    disabled />
+                              <div id = "radius" ></div>
+                            </div>
+                            <strong>Custom circle center: </strong><span id="custom_circle_center"></span>
+                            <table class="targeting-info">
+                              <tr>
+                                <th></th>
+                                <th>Large</th>
+                                <th>Small</th>
+                                <th>Threshold</th>
+                                <th>Custom</th>
+                              </tr>
+                              <tr>
+                                <th class="align-left">Radius</th>
+                                <td id="text_under_map_large_radius"></td>
+                                <td id="text_under_map_small_radius"></td>
+                                <td id="text_under_map_threshold_radius"></td>
+                                <td id="text_under_map_custom_radius"></td>
+                              </tr>
+                              <tr>
+                                <th class="align-left">% Intersection</th>
+                                <td id="text_under_map_large_percent"></td>
+                                <td id="text_under_map_small_percent"></td>
+                                <td id="text_under_map_threshold_percent"></td>
+                                <td id="text_under_map_custom_percent"></td>
+                              </tr>
+                              <tr>
+                                <th class="align-left">% Waste</th>
+                                <td id="text_under_map_large_waste_percent"></td>
+                                <td id="text_under_map_small_waste_percent"></td>
+                                <td id="text_under_map_threshold_waste_percent"></td>
+                                <td id="text_under_map_custom_waste_percent"></td>
+                              </tr>
+                              <tr class="toggle-info hidden">
+                                <th class="align-left">Circle Size</th>
+                                <td id="text_under_map_large_size"></td>
+                                <td id="text_under_map_small_size"></td>
+                                <td id="text_under_map_threshold_size"></td>
+                                <td id="text_under_map_custom_size"></td>
+                              </tr>
+                              <tr class="toggle-info hidden">
+                                <th class="align-left">Intersection Size</th>
+                                <td id="text_under_map_large"></td>
+                                <td id="text_under_map_small"></td>
+                                <td id="text_under_map_threshold"></td>
+                                <td id="text_under_map_custom"></td>
+                              </tr>
+                              <tr class="toggle-info hidden">
+                                <th class="align-left">Waste Size</th>
+                                <td id="text_under_map_large_waste"></td>
+                                <td id="text_under_map_small_waste"></td>
+                                <td id="text_under_map_threshold_waste"></td>
+                                <td id="text_under_map_custom_waste"></td>
+                              </tr>
+                              <tr>
+                                <th class="align-left">Circle Score</th>
+                                <td id="text_under_map_large_score"></td>
+                                <td id="text_under_map_small_score"></td>
+                                <td id="text_under_map_threshold_score"></td>
+                                <td id="text_under_map_custom_score"></td>
+                              </tr>
+                              <tr>
+                                <th class="align-left">Selected Settings</th>
+                                <td>
+                                  <label class = "mdl-radio" for = "largeCircleRadio">
+                                    <input type = "radio"
+                                          name = "selectedTargeting"
+                                          value = "largeCircle"
+                                          id = "largeCircleRadio"
+                                          class = "mdl-radio__input"
+                                          onchange = "updateSelectedCircle()"
+                                          unchecked
+                                          disabled />
+                                  </label>
+                                </td>
+                                <td>
+                                  <label class = "mdl-radio" for = "smallCircleRadio">
+                                    <input type = "radio"
+                                          name = "selectedTargeting"
+                                          value = "smallCircle"
+                                          id = "smallCircleRadio"
+                                          class = "mdl-radio__input"
+                                          onchange = "updateSelectedCircle()"
+                                          unchecked
+                                          disabled />
+                                  </label>
+                                </td>
+                                <td>
+                                  <label class = "mdl-radio" for = "thresholdCircleRadio">
+                                    <input type = "radio"
+                                          name = "selectedTargeting"
+                                          value = "thresholdCircle"
+                                          id = "thresholdCircleRadio"
+                                          class = "mdl-radio__input"
+                                          onchange = "updateSelectedCircle()"
+                                          unchecked
+                                          disabled />
+                                  </label>
+                                </td>
+                                <td>
+                                  <label class = "mdl-radio" for = "customCircleRadio">
+                                    <input type = "radio"
+                                          name = "selectedTargeting"
+                                          value = "customCircle"
+                                          id = "customCircleRadio"
+                                          class = "mdl-radio__input"
+                                          onchange = "updateSelectedCircle()"
+                                          unchecked
+                                          disabled />
+                                  </label>
+                                </td>
+                              </tr>
+                            </table>
+                            <div class="align-right">
+                              <button id="toggleInfoButton"
+                                      class="mdl-button mdl-js-button mdl-button--accent"
+                                      onclick="toggleAdditionalInfo()"
+                                      disabled >
+                                Show Additional Info
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="mdl-card__menu">
+                            <dialog class="mdl-dialog" id="dialogExport">
+                                <div class="mdl-dialog__content">
+                                  <h4>Export Targeting Settings</h4>
+                                  The following targeting settings will be exported:
+                                  <table id="tableExport">
+                                    <tr>
+                                      <th class="align-left">Location</th>
+                                      <th class="align-left">Radius</th>
+                                      <th class="align-left">Latitude</th>
+                                      <th class="align-left">Longitude</th>
+                                    </tr>
+                                  </table>
+                                </div>
+                                <div class="mdl-dialog__content align-center">
+                                  <div id="exportSpinner" class="mdl-spinner mdl-js-spinner"></div>
+                                  <div id="exportText"></div>
+                                </div>
+                                <div class="mdl-dialog__actions">
+                                    <button id="exportButton" type="button" class="mdl-button" onclick="exportToSpreadsheet()">
+                                    Export
+                                    </button>
+                                    <button type="button" class="mdl-button close">
+                                    Cancel
+                                    </button>
+                                </div>
+                            </dialog>
+                        </div>
+                        <div class="section align-right">
+                          <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent"
+                                id="showDialogExport"
+                                disabled >
+                            Export to Spreadsheet
+                          </button>
+                          <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent"
+                                onclick="downloadRecommendations()"
+                                disabled >
+                            Download Targeting Settings
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+        <?!= HtmlService.createHtmlOutputFromFile('FileUtils').getContent(); ?>
+        <?!= HtmlService.createHtmlOutputFromFile('ShapesUtils').getContent(); ?>
+        <?!= HtmlService.createHtmlOutputFromFile('HtmlUtils').getContent(); ?>
+        <?!= HtmlService.createHtmlOutputFromFile('GlobalPage').getContent(); ?>
+    </body>
+</html>

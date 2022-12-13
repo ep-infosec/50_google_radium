@@ -1,0 +1,364 @@
+<!--
+Copyright 2020 Google Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<!DOCTYPE html>
+<script>
+   /* Export CSV Utils */
+  function downloadRecommendations() {
+    createCsvFileAndDownload(filename, globalLocationsMap);
+  }
+
+  function createCsvFileAndDownload(filename, locations) {
+    const csvFileName =
+      removeExtension(filename) + projectParameters.fileSuffix;
+    const csvLines = createCsvContent(locations);
+    const csvContent = csvLines.join('\n');
+    createFileAndDownload(csvContent, csvFileName);
+  }
+
+  function createCsvContent(locations) {
+    const minRadius = projectParameters.csvConfig.minRadius;
+    const intersectionTreshold =
+      projectParameters.csvConfig.intersectionTreshold;
+    const csvLines = [getCsvHeader()];
+
+    Object.keys(locations).forEach(key => {
+      const locationData = locations[key];
+      const selectedCircle = locationData[locationData.selected];
+
+      let csvLine = [];
+      csvLine.push(projectParameters.csvConfig.accountId);
+      csvLine.push(projectParameters.csvConfig.campaignName);
+      csvLine.push(`${selectedCircle.radius}` +
+        `${projectParameters.csvConfig.radiusUnit}:` +
+        `${selectedCircle.center.lat}:${selectedCircle.center.lng}`
+      );
+      csvLine.push(locationData[locationData.selected].radius);
+      csvLine.push(projectParameters.csvConfig.radiusUnit);
+
+      csvLines.push(csvLine.join(','));
+    });
+
+    return csvLines;
+  }
+
+  function getCsvHeader() {
+    return "Account ID, Campaign, Location, Radius, Unit";
+  }
+
+  /* File Helpers */
+  function createFileAndDownload(fileText, filename) {
+    const element = document.createElement('a');
+    const blob = new Blob([fileText], {type: 'text/plain'});
+
+    element.setAttribute('href', window.URL.createObjectURL(blob));
+    element.setAttribute('download', filename);
+
+    element.dataset.downloadurl =
+      ['text/plain', element.download, element.href].join(':');
+    element.draggable = true;
+    element.classList.add('dragout');
+    element.click();
+  }
+
+  function removeExtension(filename) {
+    const filenameParts = filename.split('.');
+    filenameParts.pop();
+    return filenameParts.join('.');
+  }
+
+  function populateTargetingSettingsTable() {
+    const tableExport = document.getElementById('tableExport');
+
+    // Clean up the table to leave only the header row
+    while (tableExport.rows.length > 1) {
+      tableExport.deleteRow(-1);
+    }
+
+    // Populate the table with all targeting settings that will be exported
+    Object.keys(globalLocationsMap).forEach(key => {
+      let locationData = globalLocationsMap[key];
+      let selectedCircle = locationData[locationData.selected];
+
+      var row = tableExport.insertRow();
+      row.insertCell(0).innerHTML = key;
+      row.insertCell(1).innerHTML = selectedCircle.radius;
+      row.insertCell(2).innerHTML = selectedCircle.center.lat;
+      row.insertCell(3).innerHTML = selectedCircle.center.lng;
+    });
+
+    // Clean up text from previous executions, if needed
+    document.getElementById('exportText').innerHTML = '';
+  }
+
+  function exportToSpreadsheet() {
+    document.getElementById('exportText').innerHTML = '';
+    document.getElementById('exportButton').disabled = true;
+    document.getElementById('exportSpinner').classList.add('is-active');
+    googleScriptRun
+    .withSuccessHandler(() => {
+      document.getElementById('exportButton').disabled = false;
+      document.getElementById('exportSpinner').classList.remove('is-active');
+      document.getElementById('exportText').innerHTML =
+        `Uploaded to <a href="https://docs.google.com/spreadsheets/d/` +
+        `${projectParameters.spreadsheetID}" ` +
+        `target="_blank">this Spreadsheet</a>`
+    })
+    .withFailureHandler(
+        (error) => alert(`Error occured: ${error.message}; Please check if ` +
+        `"spreadsheet id" is set in projectParameters settings.`))
+    .exportToSpreadsheet(projectParameters.spreadsheetID, globalLocationsMap,
+        projectParameters.csvConfig.radiusUnit);
+  }
+
+  function parseContentJsonObject(object) {
+    try {
+      globalPolygonsMap = mapPolygonsToNameAndCoordinates(object);
+    } catch (error) {
+      document.getElementById('uploadKmlBtn').disabled = false;
+      document.getElementById('upload-spinner').classList.remove('is-active');
+      document.getElementById('dialog-upload-error').innerHTML =
+       `KML file without the correct format. Please check following ` +
+       `<a target="_blank"` +
+       `href="https://github.com/google/radium/blob/main/samples/sample_map.kml">`+
+       `sample</a> for details`;
+      return;
+    }
+
+    closeDialog('dialog-upload');
+    globalCodeName = globalPolygonsMap.keys().next().value;
+    populateLocationsMap();
+
+    drawAllPolygons(globalPolygonsMap);
+    addMenuListItems(globalPolygonsMap.keys());
+
+    const unionPolygon =
+      unionOfPolygons(globalPolygonsMap.values().next().value);
+    removeDisabledStatus();
+    updateUI(unionPolygon);
+  }
+
+  function mapPolygonsToNameAndCoordinates(object) {
+    let placemarks = object.kml.Document.Folder ?
+      object.kml.Document.Folder.Placemark : object.kml.Document.Placemark;
+
+    //If there is a single Placemark, wrap it into an array to work
+    if (!Array.isArray(placemarks)) {
+      placemarks = [placemarks];
+    }
+
+    removeUnwantedPlacemarks(placemarks, projectParameters.unwantedString);
+    const resultMap = new Map(placemarks.map(placemark =>
+      [placemark.name.Text.substring(0, 3), []]));
+    placemarks.map(
+      placemark => (resultMap.get(placemark.name.Text.substring(0, 3)))
+        .push(getPolygonArea(parseCoordsToLatLng(
+          placemark.Polygon.outerBoundaryIs.LinearRing.coordinates.Text),
+          projectParameters.colors.red,
+          projectParameters.colors.red
+        )));
+    return resultMap;
+  }
+
+  function removeUnwantedPlacemarks(placemarks, name) {
+    const namesPlacemarks = placemarks.map(placemark => placemark.name.Text);
+    const index = namesPlacemarks.indexOf(name);
+    if (index > -1) {
+      placemarks.splice(index, 1);
+    }
+  }
+
+  function populateLocationsMap() {
+    globalPolygonsMap.forEach((polygon, key, map) => {
+      locationUnionPolygonArea = getPolygonAreaFromJtst(
+        globalMap,
+        unionOfPolygons(polygon)
+        );
+
+      locationSquareCoords = getSquareCoords(
+        getPolygonPoints(locationUnionPolygonArea));
+      locationCenter = getCenter(locationSquareCoords);
+      let thresholdCircle = getCircle(
+        getThresholdRadius(polygon) * 1000,
+        locationSquareCoords,
+        locationUnionPolygonArea
+        );
+      let location = {
+        'center': locationCenter,
+        'largeCircle': getCircle(
+          getLargeRadius(locationSquareCoords),
+          locationSquareCoords,
+          locationUnionPolygonArea
+          ),
+        'smallCircle': getCircle(
+          getSmallRadius(locationSquareCoords),
+          locationSquareCoords,
+          locationUnionPolygonArea
+          ),
+        'thresholdCircle': getCircle(
+          getThresholdRadius(polygon) * 1000,
+          locationSquareCoords,
+          locationUnionPolygonArea
+          ),
+        'customCircle': getCircle(
+          projectParameters.customRadius * 1000,
+          locationSquareCoords,
+          locationUnionPolygonArea
+          ),
+        'selected': 'thresholdCircle',
+      };
+
+      if (location){
+        globalLocationsMap[key] = location;
+      }
+    });
+  }
+
+  function parseCsvContent(object){
+    const csv = Papa.parse(object);
+    globalPolygonsMap = mapCenterRadiusToNameAndCoordinates(csv);
+    closeDialog('dialog-csv-upload');
+
+    globalCodeName = globalPolygonsMap.keys().next().value;
+    try{
+      populateLocationsMap();
+    }
+    catch (error) {
+      console.error(`Error in populateLocationsMap: ${error} `);
+      removeInvalidLocations();
+    }
+
+    drawAllPolygons(globalPolygonsMap);
+    addMenuListItems(globalPolygonsMap.keys());
+
+    const unionPolygon =
+      unionOfPolygons(globalPolygonsMap.values().next().value);
+    removeDisabledStatus();
+    updateUI(unionPolygon);
+
+  }
+
+  function removeInvalidLocations(){
+    globalPolygonsMap.forEach((value, key, map) => {
+       if (!(globalLocationsMap[key])){
+        globalPolygonsMap.delete(key);
+        console.log(`Removed invalid key: ${key}`);
+      }
+    });
+  }
+
+  function mapCenterRadiusToNameAndCoordinates(object){
+      const lines = object.data;
+      const resultMap = new Map(lines.map(line => [line[3], []]));
+      lines.map(
+       line => (resultMap.get(line[3]))
+           .push(getPolygonArea(
+             convertCircleToPolygon({ lat: parseFloat(line[0]), lng: parseFloat(line[1]) }, parseFloat(line[2])*1000, 360),
+             projectParameters.colors.red,
+             projectParameters.colors.red)));
+      return resultMap;
+    }
+
+  function updateUI(polygon) {
+    setUpGlobalVariables(polygon);
+    updateCheckboxes();
+    updateInnerHTML();
+    updateSelectedCircleRadio();
+  }
+
+  function setUpGlobalVariables(polygon) {
+    globalUnionPolygonArea = getPolygonAreaFromJtst(globalMap, polygon);
+    globalSquareCoords =
+      getSquareCoords(getPolygonPoints(globalUnionPolygonArea));
+    globalCenter = getCenter(globalSquareCoords);
+    globalMap.setCenter(globalCenter);
+    globalBusinessSize = getPolygonSize(globalUnionPolygonArea);
+  }
+
+  /* Upload KML file utils */
+  const dialogUpload = document.querySelector('#dialog-upload');
+  const showDialogButtonUpload = document.querySelector('#show-dialog-upload');
+
+  showDialogButtonUpload.addEventListener('click', function () {
+    dialogUpload.showModal();
+  });
+
+  dialogUpload.querySelector('.close').addEventListener('click', () => {
+    closeDialog('dialog-upload');
+  });
+
+  document.getElementById('uploadKmlBtn').addEventListener('click', () => {
+    document.getElementById('uploadKmlBtn').disabled = true;
+    document.getElementById('upload-spinner').classList.add('is-active');
+    document.getElementById('dialog-upload-error').innerHTML = '';
+
+    const filesUploaded = document.getElementById('kmlFileUploadBtn');
+    for (const file of filesUploaded.files) {
+      filename = file.name;
+      let reader = new FileReader();
+      reader.readAsText(file, 'UTF-8');
+      reader.onload = function (evt) {
+        const xml = evt.target.result;
+        googleScriptRun
+          .withSuccessHandler(parseContentJsonObject).parseXml(xml)
+          .withFailureHandler(
+            (error) => alert(`Error occured: ${error.message}`)
+          );
+      }
+    }
+  });
+
+  /* Upload CSV file utils */
+  const dialogCsvUpload = document.querySelector('#dialog-csv-upload');
+  const showDialogButtonCsvUpload = document.querySelector('#show-dialog-csv-upload');
+
+  showDialogButtonCsvUpload.addEventListener('click', function () {
+    dialogCsvUpload.showModal();
+  });
+
+  dialogCsvUpload.querySelector('.close').addEventListener('click', () => {
+    closeDialog('dialog-csv-upload');
+  });
+
+  document.getElementById('uploadCsvBtn').addEventListener('click', () => {
+    document.getElementById('uploadCsvBtn').disabled = true;
+    document.getElementById('upload-spinner').classList.add('is-active');
+    document.getElementById('dialog-upload-error').innerHTML = '';
+
+    const filesUploaded = document.getElementById('csvFileUploadBtn');
+     for(const file of filesUploaded.files) {
+       filename = file.name;
+       let reader = new FileReader();
+       reader.readAsText(file, 'UTF-8');
+       reader.onload = function(evt) {
+         const csv = evt.target.result;
+         parseCsvContent(csv);
+      }
+     }
+  });
+
+  /* Export Spreadsheet Utils */
+  const dialogExport = document.querySelector('#dialogExport');
+  const showDialogExportButton = document.querySelector('#showDialogExport');
+
+  showDialogExportButton.addEventListener('click', function () {
+    populateTargetingSettingsTable();
+    dialogExport.showModal();
+  });
+
+  dialogExport.querySelector('.close').addEventListener('click', () => {
+    closeDialog('dialogExport');
+  });
+</script>
